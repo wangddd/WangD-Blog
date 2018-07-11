@@ -1,0 +1,17 @@
+Use MySQL 5.7 on Linux
+
+Create directory:
+backup
+conf
+dist
+www
+    static
+    templates
+ios
+
+Create FIlE:
+LICENSE
+
+pip3 install aiohttp
+pip3 install jinja2
+pip3 install aiomysql
