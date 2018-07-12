@@ -8,7 +8,8 @@ __author__ = 'Wang Dong'
 
 
 import logging
+logging.basicConfig(level=logging.INFO)
 
-sql = '123'
 
-log(sql)
+logging('found model: %s (table: %s)' % ('111', '222'))
+logging.info('found model: %s (table: %s)' % ('111', '222'))

@@ -6,16 +6,19 @@
 # @Software: PyCharm
 __author__ = 'Wang Dong'
 
-import logging, aiomysql
+import logging, aiomysql, asyncio
 logging.basicConfig(level=logging.INFO)
 
 
+def log(sql, args=()):
+    logging.info('SQL: %s' % sql)
+
 async def create_pool(loop, **kw):
-    logging('create database conntion pool')
+    logging.info('create database conntion pool')
     global __pool
     __pool = await aiomysql.create_pool(
-        host = kw.get('host'),
-        port = kw.get('port'),
+        host = kw.get('host','99.1.1.15'),
+        port = kw.get('port', 3306),
         user = kw['user'],
         password = kw['password'],
         db = kw['db'],
@@ -30,7 +33,7 @@ async def create_pool(loop, **kw):
 async def select(sql, args, size=None):
     log(sql, args)  # ???
     global __pool
-    with (await __pool) as conn:
+    with __pool.get() as conn:
         cur = await conn.cursor(aiomysql.DictCursor)
         await cur.execute(sql.replace('?', '%s'), args or ())
         if size:
@@ -41,15 +44,33 @@ async def select(sql, args, size=None):
         logging.info("rows returned: %s" % len(rs))
         return rs
 
-async def execute(sql, args):
-    log(sql) # ???
-    with (await __pool) as conn:
+# async def execute(sql, args):
+#     log(sql) # ???
+#     with __pool.get() as conn:
+#         try:
+#             cur = await conn.cursor()
+#             await cur.execute(sql.replace('?', '%s'), args)
+#             affected = cur.rowcount
+#             await cur.close()
+#         except BaseException as e:
+#             raise
+#         return affected
+
+async def execute(sql, args, autocommit=True):
+    log(sql)
+    logging.info('----', __pool)
+    async with __pool.get() as conn:
+        if not autocommit:
+            await conn.begin()
         try:
-            cur = await conn.cursor()
-            await cur.execute(sql.replace('?', '%s'), args)
-            affected = cur.rowcount
-            await cur.close()
+            async with conn.cursor(aiomysql.DictCursor) as cur:
+                await cur.execute(sql.replace('?', '%s'), args)
+                affected = cur.rowcount
+            if not autocommit:
+                await conn.commit()
         except BaseException as e:
+            if not autocommit:
+                await conn.rollback()
             raise
         return affected
 
@@ -72,19 +93,22 @@ class StringField(Field):
     def __init__(self, name=None, primary_key=False, default=None, ddl='varchar(100)'):
         super().__init__(name, ddl, primary_key, default)
 
+class IntegerField(Field):
+    def __init__(self, name=None, primary_key=False, default=0):
+        super().__init__(name, 'bigint', primary_key, default)
 
 class ModelMetaclass(type):
     def __new__(cls, name, base, attrs):
         if name == 'Model':
             return type.__new__(cls, name, base, attrs)
         tablename = attrs.get('__table__', None) or name
-        logging('found model: %s (table: %s)' % (name, tablename))
+        logging.info('found model: %s (table: %s)' % (name, tablename))
         mappings = dict()
         fields = []
         primaryKey = None
         for k, v in attrs.items():
-            if isinstance(v, fields):
-                logging('found mapping: %s ==> %s' % (k, v))
+            if isinstance(v, Field):
+                logging.info('found mapping: %s ==> %s' % (k, v))
                 mappings[k] = v
                 if v.primary_key:
                     if primaryKey:
@@ -130,9 +154,25 @@ class Model(dict, metaclass=ModelMetaclass):
             field = self.__mappings__[key]
             if field.default is not None:
                 value = field.default() if callable(field.default) else field.default
-                logging('using default value for %s: %s' % (key, str(value)))
+                logging.info('using default value for %s: %s' % (key, str(value)))
                 setattr(self, key, value)
         return value
+
+    @classmethod
+    async def find(cls, pk):
+        'find object by primary key.'
+        rs = await select('%s where `%s`=?' % (cls.__select__, cls.__primary_key__), [pk], 1)
+        if len(rs) == 0:
+            return None
+        return cls(**rs[0])
+
+    async def save(self):
+        args = list(map(self.getValueOrDefault, self.__fields__))
+        args.append(self.getValueOrDefault(self.__primary_key__))
+        rows = await execute(self.__insert__, args)
+        if rows == 1:
+            logging.warning('failed to insert record: affected rows: %s' % rows)
+
 
 
 
