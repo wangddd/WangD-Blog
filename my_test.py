@@ -6,10 +6,9 @@
 # @Software: PyCharm
 __author__ = 'Wang Dong'
 
-
-import logging
-logging.basicConfig(level=logging.INFO)
+import time, uuid
 
 
-logging('found model: %s (table: %s)' % ('111', '222'))
-logging.info('found model: %s (table: %s)' % ('111', '222'))
+
+print('%015d' % int(time.time() *1000))
+print('%s000' % uuid.uuid4().hex)
